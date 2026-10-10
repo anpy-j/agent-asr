@@ -1,0 +1,12 @@
+{
+  "request": {
+    "source": "D:/videos/sample.mp4",
+    "language": "zh",
+    "device": "cpu",
+    "word_timestamps": true
+  },
+  "models": ["whisper-small", "whisper-large-v3", "r2t2"],
+  "reference_text": "替换成这段音频的人工逐字校对稿。没有校对稿时删除本字段。",
+  "ignore_digits": false,
+  "timeout": 7200
+}

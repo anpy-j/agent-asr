@@ -1,0 +1,8 @@
+{
+  "source": "D:/videos/sample.mp4",
+  "model": "whisper-small",
+  "language": "zh",
+  "device": "cpu",
+  "word_timestamps": true,
+  "context": "女装，羊绒，醋酸面料，尺码"
+}
