@@ -26,7 +26,7 @@ def wait_until(predicate, timeout=15):
 
 @pytest.fixture
 def fake_environment(tmp_path, monkeypatch):
-    # Real subprocess/FFmpeg/service, fake neural model: no model downloads.
+    # Real subprocess/PyAV/service, fake neural model: no model downloads.
     import wave
 
     source = tmp_path / "input.wav"

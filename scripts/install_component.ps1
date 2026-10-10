@@ -1,7 +1,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Wheel,
     [Parameter(Mandatory=$true)][string]$Sha256,
-    [string]$Destination = "$env:LOCALAPPDATA/agent-asr/runtime/0.1.0",
+    [string]$Destination = "$env:LOCALAPPDATA/agent-asr/runtime/0.1.1",
     [ValidateSet('whisper','r2t2','mcp','core')][string]$Backend = 'whisper',
     [string]$Python = 'python'
 )

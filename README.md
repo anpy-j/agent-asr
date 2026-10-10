@@ -4,7 +4,7 @@
 
 它是一个可独立安装和升级的运行组件，不是需要用户另开窗口的第三个桌面软件。剪辑助手与 Hub 可以各自启动它，也可以复用同机已经运行的服务。两个应用接入代码尚不在本仓库中。
 
-> 首版 v0.1.0 提供 Python wheel 和源码包，需要 Python、后端依赖与 FFmpeg。**不包含 Python 解释器、模型权重或一键运行的 EXE**。应用内自动下载、自动切换版本和预装完整运行环境需要由宿主实现；本组件提供稳定 API、发布清单与安装校验脚本作为接入基础。
+> 当前 v0.1.1 提供 Python wheel 和源码包，需要 Python 与后端依赖；音频预处理使用 PyAV，无需单独安装 FFmpeg 命令行程序。**不包含 Python 解释器、模型权重或一键运行的 EXE**。应用内自动下载、自动切换版本和预装完整运行环境需要由宿主实现；本组件提供稳定 API、发布清单与安装校验脚本作为接入基础。
 
 ## 为什么独立出来
 
@@ -29,12 +29,12 @@ flowchart LR
 
 ## 已实现的功能与边界
 
-| 功能 | v0.1.0 |
+| 功能 | v0.1.1 |
 |---|---|
 | Whisper small / large-v3 | faster-whisper，CPU INT8 或 CUDA |
 | R2T2 离线转写 | R2T2 权重 + 官方 Qwen3ASRModel Transformers 接口 |
 | R2T2 字词时间戳 | 可选 Qwen3-ForcedAligner-0.6B；默认开启 |
-| 本地音频、视频输入 | FFmpeg 统一提取 16 kHz 单声道 PCM |
+| 本地音频、视频输入 | PyAV 按帧提取 16 kHz 单声道 PCM，无外部 FFmpeg 进程 |
 | 模型对比 | 顺序运行、文本差异、CER、耗时、进程 RSS |
 | 后台服务 | SQLite 队列、查询、取消、重启恢复排队任务 |
 | 模型环境隔离 | 支持分别指定 Whisper / R2T2 的 Python |
@@ -49,11 +49,19 @@ R2T2 官方离线 `transcribe` 直接继承 Qwen3ASRModel。本组件用该接�
 ## 环境要求
 
 - Python 3.11+，推荐 3.12；本次开发验证环境是 Windows x64 / Python 3.12。
-- FFmpeg 位于 PATH，或通过 `AGENT_ASR_FFMPEG` 指定完整可执行文件路径。
+- PyAV 随核心包安装。常见平台的预编译 wheel 自带 FFmpeg 库，无需安装 `ffmpeg.exe`；若平台没有适用 wheel，源码构建仍需要 FFmpeg 开发库。
 - Whisper CPU 可使用 INT8；CUDA 运行需要与 CTranslate2 匹配的 NVIDIA CUDA / cuDNN。
 - R2T2 CPU 采用 FP32，模型和对齐器内存占用较高。不要把 GGUF 的模型大小或苹果 M3 的速度套用到此后端。
 - 首次下载需要访问 Hugging Face；全部模型已缓存后可以设置 `offline: true`。
 - Linux/macOS 的代码路径已提供，但首版不宣称已完成这些平台的实机验收。
+
+### 音频解码与时间戳
+
+Whisper 和 R2T2 共用 PyAV 预处理：选择第一个音轨，按帧解码并重采样为 16 kHz 单声道 PCM16 WAV。尾部重采样缓冲会完整写出；预处理不将整个长音频加载到内存，但模型推理仍有自身的内存开销。无音轨、空音频或解码失败会返回错误。
+
+转写时间戳相对于解码音频的起点，从零开始；不保留容器的绝对 PTS 偏移，不会按 PTS 跳变补静音。对于有音视频起始偏移或录制中断的素材，宿主应单独处理容器时间轴映射，不能直接假定与视频 PTS 完全相同。
+
+`AGENT_ASR_FFMPEG` 自 v0.1.1 起不再使用。剪辑助手中的剪切、拼接、字幕烧录等操作仍可使用 FFmpeg 命令行，与本组件独立。替换解码方式本身不代表识别准确率提升。
 
 ## 安装
 
@@ -68,7 +76,6 @@ python -m venv .venv
 ./.venv/Scripts/python.exe -m pip install -e ".[whisper,dev]"
 ./.venv/Scripts/python.exe -m agent_asr --version
 ./.venv/Scripts/python.exe -m agent_asr models
-ffmpeg -version
 ```
 
 Linux/macOS 将 Python 路径替换成 `.venv/bin/python`。未选择可选后端时，安装核心包不会自动安装或加载神经网络模型。
@@ -76,13 +83,13 @@ Linux/macOS 将 Python 路径替换成 `.venv/bin/python`。未选择可选后�
 ### 从 GitHub 指定版本依赖
 
 ```powershell
-python -m pip install "agent-asr[whisper] @ git+https://github.com/anpy-j/agent-asr.git@v0.1.0"
+python -m pip install "agent-asr[whisper] @ git+https://github.com/anpy-j/agent-asr.git@v0.1.1"
 ```
 
 也可以下载 [GitHub Releases](https://github.com/anpy-j/agent-asr/releases) 中的 wheel：
 
 ```powershell
-python -m pip install "./agent_asr-0.1.0-py3-none-any.whl[whisper]"
+python -m pip install "./agent_asr-0.1.1-py3-none-any.whl[whisper]"
 ```
 
 开发应用应固定 tag 或 commit，避免依赖浮动的 `main`。普通依赖打入应用后不会因为 GitHub 更新而自动升级；想独立更新，请采用后面的独立运行环境方式。
@@ -172,7 +179,7 @@ R2T2 extra 固定 `qwen-asr==0.0.6`，并限制 `gradio<6`，避免上游固定 
 ```json
 {
   "api_version": 1,
-  "component_version": "0.1.0",
+  "component_version": "0.1.1",
   "model": "whisper-small",
   "backend": "faster-whisper",
   "text": "这件外套采用羊绒面料。",
@@ -226,7 +233,7 @@ CER = 字符级 Levenshtein 编辑距离 / 参考稿字符数。包含替换、�
 - `total_seconds`：包含权重解析/首次下载、音频解码、模型冷加载、推理、输出归一化和源文件指纹计算。
 - `inference_seconds`：包含模型初始化以及后端推理；不是预热后的纯神经网络前向时间。
 - `rtf`：`inference_seconds / duration`，小于 1 表示这一阶段比音频时长短。
-- `peak_worker_tree_rss_bytes`：每 100 ms 采样识别 worker 及其全部子进程的 RSS 总和，包含 FFmpeg 和 Windows venv 实际 Python 子进程；**不含 GPU 显存**，共享内存可能被重复计算，不等同于独占内存。
+- `peak_worker_tree_rss_bytes`：每 100 ms 采样识别 worker 及其全部子进程的 RSS 总和，包含 PyAV 解码和 Windows venv 实际 Python 子进程；**不含 GPU 显存**，共享内存可能被重复计算，不等同于独占内存。
 - 默认每模型单独进程，结束后释放模型；不会同时加载三个模型。
 - 单模型默认超时 7200 秒；比较请求可以用 `timeout` 设置 1–86400 秒。
 
@@ -320,9 +327,9 @@ Windows 安装辅助脚本：
 
 ```powershell
 ./scripts/install_component.ps1 `
-  -Wheel './agent_asr-0.1.0-py3-none-any.whl' `
+  -Wheel './agent_asr-0.1.1-py3-none-any.whl' `
   -Sha256 '从可信 SHA256SUMS.txt 复制该 wheel 的哈希' `
-  -Destination "$env:LOCALAPPDATA/agent-asr/runtime/0.1.0-whisper" `
+  -Destination "$env:LOCALAPPDATA/agent-asr/runtime/0.1.1-whisper" `
   -Backend whisper
 ```
 
@@ -335,7 +342,6 @@ R2T2 可安装到另一个目录，设置 `AGENT_ASR_R2T2_PYTHON`。脚本执行
 | 变量 | 用途 |
 |---|---|
 | `AGENT_ASR_HOME` | 数据、任务及模型缓存根目录 |
-| `AGENT_ASR_FFMPEG` | FFmpeg 可执行文件路径 |
 | `AGENT_ASR_WHISPER_PYTHON` | Whisper worker 的 Python |
 | `AGENT_ASR_R2T2_PYTHON` | R2T2 worker 的 Python |
 | `AGENT_ASR_TOKEN` | 服务和客户端令牌 |
@@ -353,7 +359,7 @@ R2T2 可安装到另一个目录，设置 `AGENT_ASR_R2T2_PYTHON`。脚本执行
 
 `dist/` 产物：wheel、源码 tar.gz、安装辅助脚本、manifest、SHA256SUMS。构建脚本只对当前版本明确命名的产物生成清单，源码包不包含模型、素材、数据库或 token。
 
-测试覆盖请求校验、CER、比较失败处理、两个后端的参数和输出映射、真实子进程队列、FFmpeg 音频准备、HTTP 认证和结果查询、运行/排队取消及同目录服务锁。神经模型映射测试使用模拟后端；**通过这些测试不代表已经完成三个大模型的真实音频准确率评测**。实机验证记录见 [验证说明](docs/validation.md)。
+测试覆盖请求校验、CER、比较失败处理、两个后端的参数和输出映射、真实子进程队列、PyAV 音频准备、重采样及 MP4/AAC 解码、HTTP 认证和结果查询、运行/排队取消及同目录服务锁。神经模型映射测试使用模拟后端；**通过这些测试不代表已经完成三个大模型的真实音频准确率评测**。实机验证记录见 [验证说明](docs/validation.md)。
 
 ## 项目结构
 

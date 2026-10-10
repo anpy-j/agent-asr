@@ -1,7 +1,6 @@
 import hashlib
 import importlib.metadata
 import os
-import subprocess
 import tempfile
 import time
 import wave
@@ -31,38 +30,39 @@ def fingerprint(path):
 
 
 def prepare_audio(source, output):
+    import av
+
+    samples = 0
     try:
-        completed = subprocess.run(
-            [
-                os.environ.get("AGENT_ASR_FFMPEG", "ffmpeg"),
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-y",
-                "-i",
-                source,
-                "-vn",
-                "-ac",
-                "1",
-                "-ar",
-                "16000",
-                "-c:a",
-                "pcm_s16le",
-                str(output),
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=7200,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError("FFmpeg not found; install it or set AGENT_ASR_FFMPEG") from exc
-    if completed.returncode:
-        raise RuntimeError(f"Audio decoding failed: {completed.stderr[-2000:]}")
-    with wave.open(str(output), "rb") as handle:
-        return handle.getnframes() / handle.getframerate()
+        with av.open(str(source)) as container:
+            if not container.streams.audio:
+                raise RuntimeError("Input contains no audio stream")
+            stream = container.streams.audio[0]
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+            with wave.open(str(output), "wb") as handle:
+                handle.setnchannels(1)
+                handle.setsampwidth(2)
+                handle.setframerate(16000)
+
+                def write_frames(frames):
+                    nonlocal samples
+                    for frame in frames:
+                        # Audio planes can include padding; write only actual samples.
+                        handle.writeframesraw(bytes(frame.planes[0])[: frame.samples * 2])
+                        samples += frame.samples
+
+                for frame in container.decode(stream):
+                    # File ASR uses the concatenated sample timeline, starting at zero.
+                    # Container PTS offsets/gaps are not converted into inserted silence.
+                    frame.pts = None
+                    write_frames(resampler.resample(frame))
+                write_frames(resampler.resample(None))
+        if not samples:
+            raise RuntimeError("Input contains no decoded audio samples")
+    except Exception as exc:
+        Path(output).unlink(missing_ok=True)
+        raise RuntimeError(f"Audio decoding failed: {exc}") from exc
+    return samples / 16000
 
 
 def whisper(request, audio, path):
@@ -177,7 +177,7 @@ def transcribe(payload):
             "Nonempty transcript has no requested word timestamps; refusing fabricated boundaries"
         )
     versions = {}
-    for name in ("faster-whisper", "ctranslate2", "qwen-asr", "torch"):
+    for name in ("av", "faster-whisper", "ctranslate2", "qwen-asr", "torch"):
         try:
             versions[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
