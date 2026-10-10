@@ -186,3 +186,65 @@ def test_restart_marks_interrupted_running_job_failed(tmp_path):
         assert jobs.get("interrupted")["status"] == "failed"
     finally:
         jobs.close()
+
+
+def test_mcp_stdio_gateway_lists_tools_and_calls_authenticated_service(tmp_path):
+    pytest.importorskip("mcp")
+    import asyncio
+
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    token = "mcp-test-only-token-01234567890123456789"
+    environment = {**os.environ, "AGENT_ASR_TOKEN": token, "AGENT_ASR_URL": f"http://127.0.0.1:{port}"}
+    server = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "agent_asr",
+            "serve",
+            "--port",
+            str(port),
+            "--data-dir",
+            str(tmp_path / "mcp-service"),
+        ],
+        env=environment,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    client = Client(token, environment["AGENT_ASR_URL"])
+
+    def ready():
+        try:
+            return client.models()
+        except OSError:
+            return None
+
+    async def check():
+        parameters = StdioServerParameters(
+            command=sys.executable, args=["-m", "agent_asr", "mcp"], env=environment
+        )
+        async with stdio_client(parameters) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                tools = await session.list_tools()
+                assert {tool.name for tool in tools.tools} == {
+                    "list_asr_models",
+                    "create_transcription",
+                    "compare_transcriptions",
+                    "get_transcription",
+                    "cancel_transcription",
+                }
+                response = await session.call_tool("list_asr_models", {})
+                assert response.isError is False
+                assert "whisper-large-v3" in str(response.content)
+
+    try:
+        wait_until(ready)
+        asyncio.run(asyncio.wait_for(check(), timeout=20))
+    finally:
+        server.terminate()
+        server.wait(timeout=10)

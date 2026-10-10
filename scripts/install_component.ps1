@@ -19,4 +19,3 @@ if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed; do not switch 
 & $runtimePython -m agent_asr --version
 if ($LASTEXITCODE -ne 0) { throw 'Runtime smoke check failed' }
 Write-Output "Runtime ready: $runtimePython"
-

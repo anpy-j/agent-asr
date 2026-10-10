@@ -394,4 +394,3 @@ tests/              契约和服务测试
 - [Qwen3-ASR](https://github.com/QwenLM/Qwen3-ASR)与 [Qwen3-ForcedAligner](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B)。
 
 本仓库不复制或再分发模型权重。商业产品分发模型前，应按实际使用方式核对上游权重许可证。
-
